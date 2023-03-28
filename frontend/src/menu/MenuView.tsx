@@ -15,6 +15,7 @@ import {
 } from "../../wailsjs/go/main/App";
 import {v4 as uuid} from "uuid";
 import Option from "tdesign-react/es/select/base/Option";
+import NewConversation, { ConversationInfoType } from "./Dialog/NewConversation";
 
 const {MenuItem} = Menu
 
@@ -27,12 +28,6 @@ type MenuViewPropsType = {
     setCurrentConversationId: (id: number) => void
 }
 
-type ConversationInfoType = {
-    uuid: string,
-    title: string,
-    characterSetting: string,
-    model: string
-}
 
 const MenuView = (props: MenuViewPropsType) => {
     const {onChange, defaultSelected, currentConversationId, setCurrentConversationId, setConversationList} = props
@@ -68,22 +63,19 @@ const MenuView = (props: MenuViewPropsType) => {
             title: ""
         })
     }
-    let submitConversation = () => {
-        if (!conversationInfo?.title || conversationInfo?.title == "") {
-            UtilMessageDialog("error", "错误", "会话标题不能为空").then(r => {
-            })
-            return
-        }
-        if (!conversationInfo?.model || conversationInfo?.model == "") {
-            UtilMessageDialog("error", "错误", "会话模型不能为空").then(r => {
-            })
-            return;
-        }
-        let func: (uuid: string, title: string, characterSetting: string, model: string) => Promise<string>;
+    let submitConversation = (newConversation:ConversationInfoType) => {
+        let {
+            uuid,
+            title,
+            model,
+            characterSetting
+        } = newConversation;
+        let func:Promise<any>;
         let id = ""
         if (!isEdit) {
-            func = ConversationCreate
-            ConversationCreate(id, conversationInfo.title, conversationInfo.characterSetting, conversationInfo.model).then((s) => {
+            func = ConversationCreate(
+                uuid, title, characterSetting,model
+            ).then((s) => {
                 if (s != "会话创建成功") {
                     UtilMessageDialog("error", "错误", `会话创建失败(${s})`).then(r => {
                     })
@@ -97,30 +89,34 @@ const MenuView = (props: MenuViewPropsType) => {
                 })
             })
         } else {
-            func = ConversationEdit
-        }
-        func(conversationInfo.uuid,conversationInfo.title, conversationInfo.characterSetting, conversationInfo.model).then((s:string)=>{
-            if (!isEdit && s != "会话创建成功") {
-                UtilMessageDialog("error", "错误", `会话创建失败(${s})`).then(r => {
-                })
-                return
-            }
-            if (isEdit && s != "") {
-                UtilMessageDialog("error", "错误", `会话编辑失败(${s})`).then(r => {
-                })
-                return
-            }
-            setEditConversationVisible(false)
-            ConversationGetList().then((list) => {
-                setConversationList(list)
-                if (!isEdit) {
-                    list.length > 0 && setCurrentConversationId(0)
+            func = ConversationEdit(
+                uuid, title,characterSetting, model,
+            ).then((s:string)=>{
+                if (!isEdit && s != "会话创建成功") {
+                    UtilMessageDialog("error", "错误", `会话创建失败(${s})`).then(r => {
+                    })
+                    return
                 }
+                if (isEdit && s != "") {
+                    UtilMessageDialog("error", "错误", `会话编辑失败(${s})`).then(r => {
+                    })
+                    return
+                }
+                setEditConversationVisible(false)
+                ConversationGetList().then((list) => {
+                    setConversationList(list)
+                    if (!isEdit) {
+                        list.length > 0 && setCurrentConversationId(0)
+                    }
+                })
             })
-        }).finally(() => {
-            resetEditConversationWindowData()
-        })
+        }
+        
     }
+
+    let [loading, setLoading] = useState({
+        OpenAiGetModelList: false,
+    })
 
     // 获取会话列表
     useEffect(function () {
@@ -136,6 +132,26 @@ const MenuView = (props: MenuViewPropsType) => {
             setModelList(list)
         })
     }, [])
+
+    const openEditConversationDialog = (isEdit:boolean) => {
+
+
+        setModelList(modelList)
+        setIsEdit(isEdit)
+        setEditConversationVisible(true)
+
+        if(!isEdit) {
+            setConversationInfo(old => {
+                old.uuid = uuid(),
+                old.model = modelList[0]
+                return {
+                    ...old                                    
+                }
+            })
+        }
+    }
+
+
 
     return (
         <>
@@ -162,19 +178,21 @@ const MenuView = (props: MenuViewPropsType) => {
                                     <span>{c.Title}</span>
                                     <Button shape="circle" theme="default" icon={<Edit1Icon size={"3px"}/>}
                                             onClick={() => {
-                                                OpenAiGetModelList().then((list: string[]) => {
-                                                        setModelList(list)
-                                                        setIsEdit(true  )
-                                                        setConversationInfo({
-                                                            uuid:c.UUID,
-                                                            characterSetting: c.CharacterSetting,
-                                                            model: c.ChatModel,
-                                                            title: c.Title
-                                                        })
-                                                    }
-                                                ).finally(() => {
-                                                    setEditConversationVisible(true)
+                                                setConversationInfo({
+                                                    uuid:c.UUID,
+                                                    characterSetting: c.CharacterSetting,
+                                                    model: c.ChatModel,
+                                                    title: c.Title
                                                 })
+                                                openEditConversationDialog(true);
+                                                // OpenAiGetModelList().then((list: string[]) => {
+                                                //         setModelList(list)
+                                                //         setIsEdit(true  )
+                                                        
+                                                //     }
+                                                // ).finally(() => {
+                                                //     setEditConversationVisible(true)
+                                                // })
                                             }
                                             }
                                     />
@@ -198,12 +216,8 @@ const MenuView = (props: MenuViewPropsType) => {
                 </Menu>
 
                 <div>
-                    <Button style={{width: "100%", height: "40px"}} onClick={() => {
-                        OpenAiGetModelList().then((list: string[]) => {
-                            setModelList(list)
-                            setIsEdit(false)
-                            setEditConversationVisible(true)
-                        })
+                    <Button loading={loading.OpenAiGetModelList} style={{width: "100%", height: "40px"}} onClick={() => {
+                        openEditConversationDialog(false);
                     }}>新建会话</Button>
                 </div>
                 <div style={{marginTop: "1px"}}>
@@ -216,7 +230,19 @@ const MenuView = (props: MenuViewPropsType) => {
                         setProxyConfigVisible(true)
                     }}>设置代理</Button>
                 </div>
-                <Dialog
+                <NewConversation
+                    isEdit={isEdit}
+                    visible={editConversationVisible}
+                    onClose={() => {
+                        setEditConversationVisible(false)
+                        resetEditConversationWindowData()
+                    }}
+                    onConfirm={(newConversation) => submitConversation(newConversation)}
+                    info={conversationInfo}
+                    modelList={modelList}
+                />
+
+                {/* <Dialog
                     header={isEdit ? '编辑会话' : '新建会话'}
                     visible={editConversationVisible}
                     onClose={() => {
@@ -253,7 +279,7 @@ const MenuView = (props: MenuViewPropsType) => {
                             ))}
                         </Select>
                     </div>
-                </Dialog>
+                </Dialog> */}
                 <Dialog
                     header="请输入apikey"
                     visible={apiKeyConfigVisible}
